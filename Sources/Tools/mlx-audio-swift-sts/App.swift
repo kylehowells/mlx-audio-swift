@@ -495,7 +495,6 @@ enum App {
             let forceStageEval = env["DFN_STREAM_PROFILE_STAGE_EVAL"] == "1"
             let materializeEveryHops = max(Int(env["DFN_STREAM_MAT_EVERY"] ?? "") ?? 256, 0)
             let enableStageSkipping = env["DFN_STREAM_STAGE_SKIP"] == "1"
-            let enableCompiledInfer = env["DFN_STREAM_COMPILE"] == "1"
             let bypassModel = env["DFN_STREAM_BYPASS"] == "1"
 
             let runStream = {
@@ -506,7 +505,6 @@ enum App {
                             padEndFrames: 3,
                             compensateDelay: true,
                             enableStageSkipping: enableStageSkipping,
-                            enableCompiledInfer: enableCompiledInfer,
                             enableProfiling: streamProfiling,
                             profilingForceEvalPerStage: forceStageEval,
                             materializeEveryHops: materializeEveryHops
@@ -524,7 +522,7 @@ enum App {
                 }
                 if streamProfiling {
                     print(
-                        "Stream profiling enabled (stageEval=\(forceStageEval), materializeEveryHops=\(materializeEveryHops), stageSkip=\(enableStageSkipping), compile=\(enableCompiledInfer))"
+                        "Stream profiling enabled (stageEval=\(forceStageEval), materializeEveryHops=\(materializeEveryHops), stageSkip=\(enableStageSkipping))"
                     )
                 }
 
