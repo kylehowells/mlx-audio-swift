@@ -258,6 +258,32 @@ struct DeepFilterNetLoadingTests {
             Issue.record("Expected DeepFilterNetError, got \(error)")
         }
     }
+
+    @Test func stsLoadModelRoutesLocalDeepFilterNet() async throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("deepfilternet-sts-local-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let configURL = tempDir.appendingPathComponent("config.json")
+        try """
+        { "model_type": "deepfilternet3" }
+        """.write(to: configURL, atomically: true, encoding: .utf8)
+
+        do {
+            _ = try await STS.loadModel(modelRepo: tempDir.path)
+            Issue.record("Expected STS.loadModel to fail due to missing weights")
+        } catch let error as DeepFilterNetError {
+            switch error {
+            case .missingWeights(let directory):
+                #expect(directory.path == tempDir.path)
+            default:
+                Issue.record("Expected missingWeights, got \(error)")
+            }
+        } catch {
+            Issue.record("Expected DeepFilterNetError, got \(error)")
+        }
+    }
 }
 
 struct MossFormer2SELayerTests {
