@@ -2483,32 +2483,65 @@ public final class DeepFilterNetModel: STSModel {
         let bih = try w("\(prefix).bias_ih_l\(layer)")
         let bhh = try w("\(prefix).bias_hh_l\(layer)")
 
-        let b = x.shape[0]
+        let batchSize = x.shape[0]
         let t = x.shape[1]
+        let h3 = 3 * hiddenSize
 
-        var h = MLXArray.zeros([b, hiddenSize], type: Float.self)
-        var states = [MLXArray]()
-        states.reserveCapacity(t)
+        // Batch input projection on GPU: gxAll[B, T, 3H] = x @ wihT + bih
+        let x2 = x.reshaped([batchSize * t, x.shape[2]])
+        let gxAllMLX = (MLX.matmul(x2, wihT) + bih).reshaped([batchSize, t, h3])
+        eval(gxAllMLX)
 
-        for i in 0..<t {
-            let xt = x[0..., i, 0...]
-            let gx = MLX.addMM(bih, xt, wihT)
-            let gh = MLX.addMM(bhh, h, whhT)
+        // Extract to CPU
+        let gxAll = gxAllMLX.asType(.float32).reshaped([-1]).asArray(Float.self)
+        let wHH = whhT.asType(.float32).reshaped([-1]).asArray(Float.self)
+        let biasHH = bhh.asType(.float32).reshaped([-1]).asArray(Float.self)
 
-            let xr = gx[0..., 0..<hiddenSize]
-            let xz = gx[0..., hiddenSize..<(2 * hiddenSize)]
-            let xn = gx[0..., (2 * hiddenSize)...]
-            let hr = gh[0..., 0..<hiddenSize]
-            let hz = gh[0..., hiddenSize..<(2 * hiddenSize)]
-            let hn = gh[0..., (2 * hiddenSize)...]
+        let totalOut = batchSize * t * hiddenSize
+        var output = Array<Float>(repeating: 0, count: totalOut)
+        var state = Array<Float>(repeating: 0, count: batchSize * hiddenSize)
+        var ghBuf = Array<Float>(repeating: 0, count: h3)
 
-            let r = sigmoid(xr + hr)
-            let z = sigmoid(xz + hz)
-            let n = tanh(xn + r * hn)
-            h = (MLXArray(Float(1.0)) - z) * n + z * h
-            states.append(h)
+        for ti in 0..<t {
+            for bi in 0..<batchSize {
+                let stOff = bi * hiddenSize
+                let gxOff = (bi * t + ti) * h3
+
+                // gh = state @ wHH (hidden projection via Accelerate)
+                state.withUnsafeBufferPointer { sBuf in
+                    wHH.withUnsafeBufferPointer { wBuf in
+                        ghBuf.withUnsafeMutableBufferPointer { gBuf in
+                            vDSP_mmul(
+                                sBuf.baseAddress! + stOff, 1,
+                                wBuf.baseAddress!, 1,
+                                gBuf.baseAddress!, 1,
+                                vDSP_Length(1), vDSP_Length(h3), vDSP_Length(hiddenSize)
+                            )
+                        }
+                    }
+                }
+
+                // GRU gates (PyTorch convention: (1-z)*n + z*h)
+                for k in 0..<hiddenSize {
+                    let xr = gxAll[gxOff + k]
+                    let xz = gxAll[gxOff + hiddenSize + k]
+                    let xn = gxAll[gxOff + 2 * hiddenSize + k]
+                    let hr = ghBuf[k] + biasHH[k]
+                    let hz = ghBuf[hiddenSize + k] + biasHH[hiddenSize + k]
+                    let hn = ghBuf[2 * hiddenSize + k] + biasHH[2 * hiddenSize + k]
+
+                    let r = 1.0 / (1.0 + expf(-(xr + hr)))
+                    let z = 1.0 / (1.0 + expf(-(xz + hz)))
+                    let n = tanhf(xn + r * hn)
+                    state[stOff + k] = (1.0 - z) * n + z * state[stOff + k]
+                }
+
+                let outOff = (bi * t + ti) * hiddenSize
+                output.replaceSubrange(outOff..<(outOff + hiddenSize), with: state[stOff..<(stOff + hiddenSize)])
+            }
         }
-        return MLX.stacked(states, axis: 1)
+
+        return MLXArray(output).reshaped([batchSize, t, hiddenSize])
     }
 
     private func linear(_ x: MLXArray, weight: MLXArray, bias: MLXArray) -> MLXArray {
