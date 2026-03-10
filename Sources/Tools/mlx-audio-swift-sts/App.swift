@@ -569,9 +569,9 @@ enum App {
                     }
                     processSeconds += CFAbsoluteTimeGetCurrent() - tTail0
                     if tail.shape[0] > 0 {
-                        let tTailEmit0 = CFAbsoluteTimeGetCurrent()
+                        let tEmit0 = CFAbsoluteTimeGetCurrent()
                         try writer.writeChunk(tail)
-                        emitSeconds += CFAbsoluteTimeGetCurrent() - tTailEmit0
+                        emitSeconds += CFAbsoluteTimeGetCurrent() - tEmit0
                         writtenSamples += tail.shape[0]
                         chunkCount += 1
                     }
