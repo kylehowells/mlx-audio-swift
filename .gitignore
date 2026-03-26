@@ -20,3 +20,4 @@ default.profraw
 scripts/
 .tmp/
 audit-repo/
+/scratchpad
